@@ -71,7 +71,7 @@ def get_response():
 
     body = {
     "temperature": 0,
-    "max_tokens": 1000,
+    "max_tokens": 800,
     "top_p": 1.0,
     "stream": False,
     "dataSources": [
