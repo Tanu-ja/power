@@ -23,30 +23,6 @@ cognitive_search_key = os.getenv("COGNITIVE_SEARCH_KEY")
 cognitive_search_index_name = os.getenv("COGNITIVE_SEARCH_INDEX_NAME")
 OPENAI_URL = f"{api_base}/openai/deployments/{deployment_id}/extensions/chat/completions?api-version=2023-06-01-preview"
 
-def translate_text(text, target_language):
-    openai.api_type = "azure"
-    openai.api_base = api_base
-    openai.api_version = "2023-06-01-preview"
-    openai.api_key = api_key
-
-    message_text = [
-        {"role":"system","content":"You are an AI assistant that translates text. You only respond with the translated text. You make sure that there are no spelling mistakes in your response."},
-        {"role":"user","content":f"Translate the following test to, please make sure that structure and meaing of the sentense is not changed {target_language} : {text}"}]
-
-    completion = openai.ChatCompletion.create(
-    engine=deployment_id,
-    messages = message_text,
-    temperature=0,
-    max_tokens=800,
-    top_p=0.95,
-    frequency_penalty=0,
-    presence_penalty=0,
-    stop=None,
-    stream=False
-    )
-    
-
-    return completion["choices"][0]["message"]["content"]
 
 @app.route("/")
 def index():
@@ -63,15 +39,10 @@ def get_response():
     }
     user_input = request.get_json().get("message")
 
-    input_language = detect(user_input)
-
-    # Translate input to English if it's in Punjabi
-    if input_language == "pa":
-        user_input = translate_text(user_input, "English")
-
+   
     body = {
     "temperature": 0,
-    "max_tokens": 800,
+    "max_tokens": 2000,
     "top_p": 1.0,
     "stream": False,
     "dataSources": [
@@ -80,7 +51,17 @@ def get_response():
             "parameters": {
                 "endpoint": cognitive_search_endpoint,
                 "key": cognitive_search_key,
-                "indexName": cognitive_search_index_name
+                "indexName": cognitive_search_index_name,
+                "queryType": "simple",
+                    "fieldsMapping": {
+                        "contentFieldsSeparator": "\n",
+                        "contentFields": ["page_content"],
+                        "filepathField": "PageNumber",
+                        "titleField": None,
+                        "urlField": "URL",
+                        "vectorFields": [],
+                    },
+                    "inScope": True,
             }
         }
     ],
@@ -95,12 +76,10 @@ def get_response():
     response = requests.post(url, headers=headers, json=body)
 
     json_response = response.json()
+    print(json_response)
 
     message = json_response["choices"][0]["messages"][1]["content"]
     
-
-    if input_language == "pa":
-        message = translate_text(message, "Punjabi")
 
 
     tool_message_content = json_response["choices"][0]["messages"][0]["content"]
@@ -132,11 +111,29 @@ def get_response():
             print("No citations found")
     else:
         print("No 'citations' field found in the tool message content")
+        
 
-    # print(message)
-    url2 = url2.replace("/originaldocuments/", "/actualdocuments/") #  change citiation url to original documents url 
 
-    return jsonify({"assistant_content": message + " " +  url2})
+
+    content2 = ""
+    if "citations" in tool_message_content_dict:
+        citations = tool_message_content_dict["citations"]
+        
+        # Extracting the URL from the first citation if present
+        if citations:
+            first_citation = citations[0]
+
+            if "filepath" in first_citation:
+                content2 = first_citation["filepath"]
+            else:
+                print("No Content found in the first citation")
+        else:
+            print("No citations found")
+    else:
+        print("No 'citations' field found in the tool message content")
+
+
+    return jsonify({"assistant_content": message + " " + url2, "Page-Number": content2})
     
 
 if __name__ == "__main__":
